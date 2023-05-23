@@ -1,5 +1,8 @@
 package atm.bloodworkxgaming.serverstarter.config
 
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.SocketAddress
 import java.util.*
 
 data class AdditionalFile(
@@ -49,6 +52,25 @@ data class LaunchSettings(
         }
 }
 
+data class HttpProxyConfig(
+    var type: String? = null,
+    var host: String? = null,
+    var port: Int? = null,
+) {
+    fun toProxy(): Proxy? {
+        if (type == null || host == null || port == null) {
+            return null
+        }
+        val t = Proxy.Type.valueOf(type!!.uppercase())
+        val address: SocketAddress? = when {
+            host == null && port == null -> null
+            host == null -> InetSocketAddress(port!!)
+            else -> InetSocketAddress(host, port!!)
+        }
+        return Proxy(t, address)
+    }
+}
+
 data class InstallConfig(
     var mcVersion: String = "",
 
@@ -72,8 +94,9 @@ data class InstallConfig(
     var spongeBootstrapper: String = "",
     var connectTimeout: Long = 30,
     var readTimeout: Long = 30,
-) {
 
+    var httpProxy: HttpProxyConfig = HttpProxyConfig(),
+) {
 
     @Suppress("UNCHECKED_CAST")
     fun <T> getFormatSpecificSettingOrDefault(name: String, fallback: T?): T? {

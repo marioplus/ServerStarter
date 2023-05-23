@@ -8,18 +8,30 @@ import okio.buffer
 import okio.sink
 import java.io.File
 import java.io.IOException
+import java.net.Proxy
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 
 class InternetManager(private val configFile: ConfigFile) {
     val httpClient = OkHttpClient.Builder()
         .connectTimeout(configFile.install.connectTimeout, TimeUnit.SECONDS)
         .readTimeout(configFile.install.readTimeout, TimeUnit.SECONDS)
+        .let { builder ->
+            configFile.install.httpProxy.toProxy()?.let { builder.proxy(it) }
+            builder
+        }
         .build()
-
 
     // Checking for connections seems to be broken on linux without root priviliges
     // Therefore we use HTTP get requests on linux to check for a valid connection
     fun checkConnection(): Boolean {
+        configFile.install.httpProxy.toProxy()?.also {
+            if (Proxy.Type.DIRECT != it.type()) {
+                LOGGER.info("Using http proxy: $it")
+            }
+        }
+
         var reached = 0
 
         val urls = listOf("http://example.com", "http://google.com")
@@ -60,14 +72,26 @@ class InternetManager(private val configFile: ConfigFile) {
 
     @Throws(IOException::class)
     fun downloadToFile(url: String, dest: File) {
+        if (dest.exists()) {
+            LOGGER.info("File already exists: " + dest.name)
+            return
+        }
+
+        val cachedFile = File("./temp/${dest.name}")
+        cachedFile.parentFile.mkdirs()
+
+        if (cachedFile.exists()) {
+            LOGGER.info("File has been cached: " + dest.name)
+            dest.parentFile?.mkdirs()
+            Files.copy(cachedFile.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+
         val req = Request.Builder()
             .url(url)
             .get()
             .build()
 
         val res = httpClient.newCall(req).execute()
-        if (!res.isSuccessful) throw IOException("HTTP error code: ${res.code} for $url")
-
         val source = res.body?.source()
         source ?: throw IOException("Message body or source from $url was null")
 
@@ -77,5 +101,6 @@ class InternetManager(private val configFile: ConfigFile) {
                 it.writeAll(source)
             }
         }
+        Files.copy(dest.toPath(), cachedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 }
